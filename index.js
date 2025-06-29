@@ -1,70 +1,82 @@
+require('dotenv').config();
 const express = require('express');
-const bodyParser = require('body-parser');
-const ejs = require('ejs');
-const encrypt = require('mongoose-encryption');
-
-const secret = 'thisismysecret';
-
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const app = express();
 
-app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
+app.use(cookieParser());
+app.set('view engine', 'ejs');
 
-const mongoose = require('mongoose');
-mongoose.connect('mongodb://localhost:27017/secrets');
+mongoose.connect('mongodb://127.0.0.1:27017/secrets', { useNewUrlParser: true, useUnifiedTopology: true });
 
-const userSchema = new mongoose.Schema({
-  email: String,
-  password: String,
-});
+// Model
+const User = require('./model/user');
 
-userSchema.plugin(encrypt, {
-  secret: secret,
-  encryptedFields: ['password'],
-});
+// Middleware to check auth
+function isAuthenticated(req, res, next) {
+  const token = req.cookies.token;
+  if (!token) return res.redirect('/login');
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    res.clearCookie('token');
+    res.redirect('/login');
+  }
+}
 
-const user = mongoose.model('second', userSchema);
+// Routes
+app.get('/', (req, res) => res.redirect('/register'));
 
+app.get('/register', (req, res) => res.render('register'));
 app.post('/register', async (req, res) => {
-  const newUser = new user({
-    email: req.body.username,
-    password: req.body.password,
+  const { name, email, password } = req.body;
+  const emailRegex = /^\S+@\S+\.\S+$/;
+  const passRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
+
+  if (!emailRegex.test(email) || !passRegex.test(password)) {
+    return res.send('Invalid email or password format.');
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  await User.create({ name, email, password: hashedPassword });
+  res.redirect('/login');
+});
+
+app.get('/login', (req, res) => res.render('login'));
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
+  if (!user) return res.send('User not found.');
+
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) return res.send('Invalid credentials.');
+
+  const token = jwt.sign({ id: user._id, name: user.name }, process.env.JWT_SECRET, {
+    expiresIn: '1h',
   });
 
-  try {
-    await newUser.save();
-    res.render('secrets');
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error registering user');
-  }
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+  });
+
+  res.redirect('/secret');
 });
 
-app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-
-  try {
-    const findUser = await user.findOne({ email: username });
-
-    if (!findUser) {
-      return res.status(401).send('User not found');
-    }
-
-    if (findUser.password === password) {
-      return res.status(200).send('Login successful');
-    } else {
-      return res.status(401).send('Invalid password');
-    }
-  } catch (err) {
-    console.error(err);
-    return res.status(500).send('Internal Server Error');
-  }
+app.get('/secret', isAuthenticated, (req, res) => {
+  res.render('secret', { name: req.user.name });
 });
 
-app.get('/', (req, res) => res.render('home'));
-app.get('/login', (req, res) => res.render('login'));
-app.get('/register', (req, res) => res.render('register'));
+app.get('/logout', (req, res) => {
+  res.clearCookie('token');
+  res.redirect('/login');
+});
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
