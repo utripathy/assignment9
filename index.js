@@ -11,7 +11,7 @@ app.use(express.static('public'));
 app.use(cookieParser());
 app.set('view engine', 'ejs');
 
-mongoose.connect('mongodb://127.0.0.1:27017/secrets', { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect('mongodb://127.0.0.1:27017/secrets');
 
 // Model
 const User = require('./model/user');
