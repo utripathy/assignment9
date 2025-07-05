@@ -11,7 +11,7 @@ app.use(express.static('public'));
 app.use(cookieParser());
 app.set('view engine', 'ejs');
 
-mongoose.connect('mongodb://127.0.0.1:27017/secrets');
+mongoose.connect('mongodb+srv://upendratripathy9:hDDSVGE6FJaig330@secrets.144ueef.mongodb.net/?retryWrites=true&w=majority&appName=secrets');
 
 // Model
 const User = require('./model/user');
